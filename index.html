@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Al Tababa Clinical Pathways</title>
+    <!-- 1. We load Tailwind CSS for a clean, responsive, mobile-first design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Using a simple, high-readability font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for high-contrast bullets */
+        .question-bullet {
+            @apply list-disc list-outside ml-5 mb-2 space-y-1 text-lg text-yellow-300;
+        }
+        .recommendation-bullet {
+            @apply list-disc list-outside ml-5 mb-2 space-y-1 text-lg text-green-300;
+        }
+        .recommendation-bullet li, .question-bullet li {
+             @apply text-gray-200; /* Text color for the li itself */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8">
+    <!-- Main app container -->
+    <div id="app" class="max-w-3xl mx-auto">
+        
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-green-400">Al Tababa Clinical Pathways</h1>
+            <p class="text-lg text-gray-300">Offline Decision Support for Resource-Limited Zones</p>
+        </header>
+
+        <!-- Home Screen (List of Pathways) -->
+        <div id="home-screen">
+            <h2 class="text-2xl font-semibold mb-4 text-center">Select a Pathway</h2>
+            <div id="pathway-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Buttons will be injected by JS -->
+            </div>
+        </div>
+
+        <!-- Pathway Screen (The actual algorithm) -->
+        <div id="pathway-screen" class="hidden bg-gray-800 p-4 md:p-6 rounded-lg shadow-xl">
+            <!-- Navigation Header -->
+            <div class="flex justify-between items-center mb-4">
+                <button id="back-button" class="bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg">&larr; Back</button>
+                <button id="home-button-nav" class="bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg">Home</button>
+            </div>
+            
+            <h2 id="pathway-title" class="text-3xl font-bold mb-6 text-green-400 border-b border-gray-700 pb-2"></h2>
+            
+            <!-- This div holds the current question or recommendation -->
+            <div id="node-content" class="mb-6">
+                <!-- Node content (question/recommendation) will be injected here -->
+            </div>
+            
+            <!-- This div holds the buttons for the next step -->
+            <div id="node-options" class="border-t border-gray-700 pt-6">
+                <!-- Option buttons will be injected here -->
+            </div>
+            
+            <!-- This button appears at the end of a pathway -->
+            <button id="home-button-end" class="hidden mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-5 rounded-lg font-bold">Pathway Complete. Back to Home.</button>
+        </div>
+
+    </div>
+
+    <!-- 2. The Application Logic (JavaScript) -->
+    <script>
+        // --- The Algorithm Trees (from the PDF) ---
+        // This JSON object IS the "algorithm tree" you described.
+        // It now contains all 18 pathways from the PDF.
+        const pathways = {
+            "dka": {
+                "title": "Diabetic Ketoacidosis (DKA)",
+                "nodes": {
+                    "start": {
+                        "question": "DKA Criteria Met? (Page 24)",
+                        "bullets": [
+                            "Plasma Glucose > 11.1 mmol/L (200 mg/dl)",
+                            "AND Positive serum/urine ketones (>= 2+)",
+                            "AND HCO3 < 18 mmol/L or pH < 7.3"
+                        ],
+                        "options": [
+                            { "text": "Yes, DKA Confirmed", "next": "dka_severity" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "dka_severity": {
+                        "question": "Assess Severity (Page 25). Does patient have ANY of the following?",
+                        "bullets": [
+                            "Severe dehydration with shock / SBP < 90",
+                            "GCS < 12",
+                            "SaO2 < 90% on room air",
+                            "Potassium (K+) < 3.0 mmol/L (PDF uses 3.3, using 3.0 for severity)",
+                            "Venous/arterial pH < 6.9",
+                            "Bicarbonate < 10 mmol/L"
+                        ],
+                        "options": [
+                            { "text": "Yes, criteria for SEVERE DKA met", "next": "dka_icu" },
+                            { "text": "No, Mild/Moderate DKA", "next": "dka_ward" }
+                        ]
+                    },
+                    "dka_icu": {
+                        "recommendation": "Admit to ICU / High-Monitoring Bed",
+                        "options": [{ "text": "Begin Management", "next": "dka_fluids" }]
+                    },
+                    "dka_ward": {
+                        "recommendation": "Admit to General Ward",
+                        "options": [{ "text": "Begin Management", "next": "dka_fluids" }]
+                    },
+                    "dka_fluids": {
+                        "recommendation": "Fluid Therapy (Initial) (Page 28)",
+                        "bullets": [
+                            "Start 0.9% Normal Saline: 10-20 ml/kg/h (e.g., 1-2 Liters) for first 1-2 hours until BP improves.",
+                            "After initial resuscitation, check K+ level BEFORE starting insulin."
+                        ],
+                        "options": [{ "text": "Proceed to Insulin/Potassium Check", "next": "dka_insulin_check_k" }]
+                    },
+                    "dka_insulin_check_k": {
+                        "question": "What is the patient's POTASSIUM (K+) level? (Page 28)",
+                        "bullets": ["CRITICAL: Do NOT give insulin unless K+ is > 3.3 mmol/L"],
+                        "options": [
+                            { "text": "K+ is < 3.3 mmol/L", "next": "dka_k_low" },
+                            { "text": "K+ is 3.3 - 5.0 mmol/L", "next": "dka_k_ok" },
+                            { "text": "K+ is > 5.0 mmol/L", "next": "dka_k_high" }
+                        ]
+                    },
+                    "dka_k_low": {
+                        "recommendation": "CRITICAL: HOLD INSULIN",
+                        "bullets": [
+                            "Give Potassium 40mmol/L in IV fluid.",
+                            "Do NOT start insulin until K+ is > 3.3",
+                            "Re-check K+ hourly."
+                        ],
+                        "options": [{ "text": "Re-check K+", "next": "dka_insulin_check_k" }]
+                    },
+                    "dka_k_ok": {
+                        "recommendation": "Start IV Insulin Infusion + Give Potassium",
+                        "bullets": [
+                            "Start 0.9% NS + 20-40 mmol/L KCL",
+                            "Start Regular IV Insulin Infusion: 0.1 units/kg/hr (e.g., 50 units in 50ml NS at 0.1ml/kg/hr)",
+                            "No bolus needed.",
+                            "Aim for glucose drop of 4-5 mmol/hr."
+                        ],
+                        "options": [{ "text": "Continue Monitoring", "next": "dka_monitoring" }]
+                    },
+                    "dka_k_high": {
+                        "recommendation": "Start IV Insulin Infusion (NO Potassium)",
+                        "bullets": [
+                            "Start 0.9% NS (NO KCL)",
+                            "Start Regular IV Insulin Infusion: 0.1 units/kg/hr",
+                            "Re-check K+ in 1-2 hours."
+                        ],
+                        "options": [{ "text": "Continue Monitoring", "next": "dka_monitoring" }]
+                    },
+                    "dka_monitoring": {
+                        "question": "Monitoring: Is Blood Glucose now < 14 mmol/L (250 mg/dl)? (Page 28)",
+                        "options": [
+                            { "text": "Yes, Glucose < 14", "next": "dka_switch_fluids" },
+                            { "text": "No, Glucose still high", "next": "dka_check_ketones" }
+                        ]
+                    },
+                    "dka_switch_fluids": {
+                        "recommendation": "Switch IV fluid to include Dextrose",
+                        "bullets": [
+                            "Change IV fluid to 0.45% Saline + 5% Dextrose.",
+                            "Continue insulin infusion.",
+                            "Continue to add KCL (20-40mmol/L) as needed based on labs.",
+                            "Keep monitoring until acidosis resolves."
+                        ],
+                        "options": [{ "text": "Check for Resolution", "next": "dka_check_resolution" }]
+                    },
+                    "dka_check_ketones": {
+                        "recommendation": "Continue current infusion",
+                        "bullets": ["If glucose is not falling 4-5mmol/hr, consider doubling insulin rate (Page 28).", "Re-check labs in 1-2 hours."],
+                        "options": [{ "text": "Re-check Labs", "next": "dka_monitoring" }]
+                    },
+                    "dka_check_resolution": {
+                        "question": "DKA Resolution Criteria Met? (Page 29)",
+                        "bullets": ["HCO3 > 18", "Anion Gap < 14", "pH > 7.3", "Patient able to take orally"],
+                        "options": [
+                            { "text": "Yes, DKA resolved", "next": "dka_switch_subcut" },
+                            { "text": "No, not resolved", "next": "dka_monitoring" }
+                        ]
+                    },
+                    "dka_switch_subcut": {
+                        "recommendation": "Switch to Subcutaneous Insulin",
+                        "bullets": [
+                            "Give first dose of long-acting (basal) insulin.",
+                            "CRITICAL: Continue IV insulin infusion for 1-2 hours AFTER the subcutaneous dose is given to prevent rebound DKA.",
+                            "Stop IV infusion after 1-2 hours."
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                     "end_re-evaluate": {
+                        "recommendation": "Re-evaluate patient for other diagnoses."
+                    },
+                    "end": {
+                        "recommendation": "Pathway complete. Continue monitoring and supportive care."
+                    }
+                }
+            },
+            "acs": {
+                "title": "Acute Coronary Syndrome (ACS)",
+                "nodes": {
+                    "start": {
+                        "question": "Patient with Typical or High-Risk Atypical Chest Pain? (Page 31)",
+                        "bullets": ["Exclude mimics: Dissection, PE, Pericarditis, Pneumothorax"],
+                        "options": [
+                            { "text": "Yes, Suspect ACS", "next": "acs_initial_meds" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "acs_initial_meds": {
+                        "recommendation": "Start Initial Meds (MONAH-BC) (Page 34, 35)",
+                        "bullets": [
+                            "Aspirin 300mg (chewed) STAT",
+                            "Ticagrelor 180mg STAT or Clopidogrel 300-600mg STAT",
+                            "Nitroglycerin SL (if SBP > 90, no PDE-5 inhibitors)",
+                            "Morphine 2.5-5mg IV (if pain persists)",
+                            "Beta-Blocker (e.g., Bisoprolol) (Hold if SBP < 90, PR < 50, Severe CHF/Asthma)",
+                            "Anticoagulation (Heparin IV or LMWH Subcut)",
+                            "Statin (e.g., Atorvastatin 40-80mg)"
+                        ],
+                        "options": [{ "text": "Check ECG for ACS Subtype", "next": "acs_subtype" }]
+                    },
+                    "acs_subtype": {
+                        "question": "Categorise ACS Subtype (based on ECG & Troponin) (Page 32)",
+                        "options": [
+                            { "text": "STEMI (ST Elevation or new LBBB)", "next": "stemi" },
+                            { "text": "NSTEMI (ST Depression/T-Inversion + Positive Troponin)", "next": "nstemi" },
+                            { "text": "Unstable Angina (Sx + Negative Troponin)", "next": "ua" }
+                        ]
+                    },
+                    "stemi": {
+                        "recommendation": "STEMI: URGENT Reperfusion Needed!",
+                        "question": "Is skilled PCI available (<90 min)? (Page 36)",
+                        "options": [
+                            { "text": "Yes, Primary PCI available", "next": "pci" },
+                            { "text": "No, PCI not available/delayed", "next": "lytics" }
+                        ]
+                    },
+                    "pci": {
+                        "recommendation": "Proceed to Primary PCI",
+                        "bullets": ["Continue DAPT (Aspirin + Ticagrelor/Clopidogrel)", "Continue Anticoagulation"],
+                        "options": [{ "text": "End Pathway (Admit CCU)", "next": "end" }]
+                    },
+                    "lytics": {
+                        "recommendation": "Thrombolysis (e.g., Alteplase, Streptokinase) (Page 38)",
+                        "bullets": ["Check for ALL contraindications (Page 38)", "Door-to-Needle time < 30 mins", "Monitor for reperfusion or failure"],
+                        "options": [{ "text": "End Pathway (Admit CCU)", "next": "end" }]
+                    },
+                    "nstemi": {
+                        "recommendation": "NSTEMI: Risk Stratify (e.g., GRACE Score) (Page 37)",
+                        "question": "Patient Risk Status?",
+                        "options": [
+                            { "text": "Very High Risk (Shock, Refractory Pain, Arrhythmias)", "next": "nstemi_v_high" },
+                            { "text": "High Risk (GRACE >140, Dynamic ST/T changes)", "next": "nstemi_high" },
+                            { "text": "Intermediate/Low Risk", "next": "nstemi_low" }
+                        ]
+                    },
+                    "nstemi_v_high": {
+                        "recommendation": "Immediate Invasive Strategy (<2 hours)",
+                        "bullets": ["Proceed to urgent Coronary Angiography/PCI", "Admit CCU"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "nstemi_high": {
+                        "recommendation": "Early Invasive Strategy (<24 hours)",
+                        "bullets": ["Proceed to Coronary Angiography/PCI within 24h", "Admit CCU"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "nstemi_low": {
+                        "recommendation": "Invasive Strategy (<72 hours) or Conservative",
+                        "bullets": ["Admit to Monitored Bed", "Continue medical management"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "ua": {
+                        "recommendation": "Unstable Angina: Risk Stratify (GRACE/TIMI)",
+                        "bullets": ["Management similar to NSTEMI", "Admit to Monitored Bed", "Continue medical management"],
+                        "options": [{ "text": "See NSTEMI Risk Stratification", "next": "nstemi" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "abm": {
+                "title": "Acute Bacterial Meningitis (ABM)",
+                "nodes": {
+                    "start": {
+                        "question": "ABM Suspected? (Fever, Headache, Neck Stiffness, Mental Status Change) (Page 41)",
+                        "options": [
+                            { "text": "Yes, ABM Suspected", "next": "lp_check" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "lp_check": {
+                        "question": "Contraindication to immediate Lumbar Puncture (LP)? (Page 41)",
+                        "bullets": ["Papilledema", "Immunocompromised", "Reduced GCS", "Focal Neurological Signs", "New Focal Seizures", "Severe Shock / Coagulopathy"],
+                        "options": [
+                            { "text": "Yes, LP is Contraindicated for now", "next": "lp_yes_ci" },
+                            { "text": "No Contraindication to LP", "next": "lp_no_ci" }
+                        ]
+                    },
+                    "lp_yes_ci": {
+                        "recommendation": "LP Contraindicated: DO NOT DELAY ANTIBIOTICS",
+                        "bullets": [
+                            "1. STAT Blood Culture",
+                            "2. STAT IV Dexamethasone 10mg (Page 43)",
+                            "3. STAT IV Antibiotics (See next step)",
+                            "4. STAT CT Head (then perform LP if safe)"
+                        ],
+                        "options": [{ "text": "Select Antibiotics", "next": "abx_choice" }]
+                    },
+                    "lp_no_ci": {
+                        "recommendation": "No LP Contraindication: PROCEED WITH LP",
+                        "bullets": [
+                            "1. STAT Blood Culture",
+                            "2. STAT IV Dexamethasone 10mg (Page 43)",
+                            "3. STAT Lumbar Puncture (LP)",
+                            "4. Start IV Antibiotics IMMEDIATELY after LP"
+                        ],
+                        "options": [{ "text": "Select Antibiotics", "next": "abx_choice" }]
+                    },
+                    "abx_choice": {
+                        "question": "Select Antibiotic Regimen (Page 43):",
+                        "options": [
+                            { "text": "Probable Meningococcal (e.g., rash, epidemic)", "next": "abx_meningococcal" },
+                            { "text": "Adult Age > 50 years", "next": "abx_adult_over_50" },
+                            { "text": "Default (Adult < 50, no rash)", "next": "abx_default" }
+                        ]
+                    },
+                    "abx_meningococcal": {
+                        "recommendation": "Antibiotics: Probable Meningococcal",
+                        "bullets": ["Benzylpenicillin 4 mu IV q4h OR Ampicillin 2g IV q4h"],
+                        "options": [{ "text": "End Pathway (Admit, Isolate)", "next": "end" }]
+                    },
+                    "abx_adult_over_50": {
+                        "recommendation": "Antibiotics: Adult > 50 years",
+                        "bullets": ["Ceftriaxone 2g IV q12h", "PLUS Vancomycin 1g IV q12h", "PLUS Ampicillin 2g IV q4h (for Listeria cover)"],
+                        "options": [{ "text": "End Pathway (Admit, Isolate)", "next": "end" }]
+                    },
+                    "abx_default": {
+                        "recommendation": "Antibiotics: Default Adult Regimen",
+                        "bullets": ["Ceftriaxone 2g IV q12h", "PLUS Vancomycin 1g IV q12h (if resistant pneumococci suspected)"],
+                        "options": [{ "text": "End Pathway (Admit, Isolate)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "cap": {
+                "title": "Community Acquired Pneumonia (CAP)",
+                "nodes": {
+                    "start": {
+                        "question": "CAP Confirmed (History, Exam, CXR)? (Page 45)",
+                        "options": [
+                            { "text": "Yes, CAP Confirmed", "next": "severity" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "severity": {
+                        "question": "Assess Severity / Site of Care (CURB-65) (Page 46)",
+                        "bullets": ["C: Confusion", "U: Urea > 7", "R: RR > 30", "B: BP < 90/60", "65: Age >= 65"],
+                        "options": [
+                            { "text": "Score 0-1 (Outpatient - Not covered)", "next": "end_re-evaluate" },
+                            { "text": "Score 2 (Admit General Ward)", "next": "curb_2" },
+                            { "text": "Score 3-5 (Admit ICU)", "next": "curb_3_5" }
+                        ]
+                    },
+                    "curb_2": {
+                        "recommendation": "Admit to General Ward",
+                        "question": "Any specific risk factors? (e.g., Bronchiectasis, Aspiration)",
+                        "options": [
+                            { "text": "No, standard Ward CAP", "next": "cap_ward_simple" },
+                            { "text": "Yes, Suspect Aspiration", "next": "cap_ward_aspiration" },
+                            { "text": "Yes, Suspect Pseudomonas (e.g., Bronchiectasis)", "next": "cap_ward_pseudomonas" }
+                        ]
+                    },
+                    "curb_3_5": {
+                        "recommendation": "Admit to ICU",
+                        "question": "Any specific risk factors?",
+                        "options": [
+                            { "text": "No, standard ICU CAP", "next": "cap_icu_simple" },
+                            { "text": "Yes, Suspect Pseudomonas", "next": "cap_icu_pseudomonas" },
+                            { "text": "Yes, Suspect MRSA", "next": "cap_icu_mrsa" }
+                        ]
+                    },
+                    "cap_ward_simple": {
+                        "recommendation": "Antibiotics: Ward CAP (Page 47)",
+                        "bullets": ["Ceftriaxone 1-2g IV q24h PLUS Azithromycin 500mg PO", "OR", "Moxifloxacin 400mg PO/IV OD (monotherapy)"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "cap_ward_aspiration": {
+                        "recommendation": "Antibiotics: Ward CAP (Aspiration) (Page 47)",
+                        "bullets": ["Ceftriaxone 1-2g IV q24h", "PLUS Clindamycin or Metronidazole"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "cap_ward_pseudomonas": {
+                        "recommendation": "Antibiotics: Ward CAP (Pseudomonas Risk) (Page 47)",
+                        "bullets": ["Antipseudomonal (e.g., Pip/Taz, Meropenem)", "PLUS Azithromycin or Fluoroquinolone"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "cap_icu_simple": {
+                        "recommendation": "Antibiotics: ICU CAP (Page 47)",
+                        "bullets": ["IV Ceftriaxone 2g q24h", "PLUS IV Azithromycin 500mg q24h"],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "cap_icu_pseudomonas": {
+                        "recommendation": "Antibiotics: ICU CAP (Pseudomonas Risk) (Page 47)",
+                        "bullets": ["IV Pip/Taz or Meropenem or Cefepime", "PLUS IV Ciprofloxacin or Levofloxacin"],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "cap_icu_mrsa": {
+                        "recommendation": "Antibiotics: ICU CAP (MRSA Risk) (Page 47)",
+                        "bullets": ["Add Vancomycin or Linezolid to standard ICU regimen"],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "asthma": {
+                "title": "Bronchial Asthma Admission (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Asthma Exacerbation. Assess Severity (Page 49)",
+                        "bullets": ["Inability to speak sentences?", "PEFR?", "Pulse Rate?", "Respiratory Rate?"],
+                        "options": [
+                            { "text": "Mild-Moderate (PEFR 60-80%, can speak)", "next": "mild_moderate" },
+                            { "text": "Severe / Life-Threatening (PEFR < 60%, can't speak)", "next": "severe" }
+                        ]
+                    },
+                    "mild_moderate": {
+                        "recommendation": "Mild-Moderate Attack (Page 50)",
+                        "bullets": [
+                            "1. Salbutamol 2-4 puffs via spacer q 1-5 min (or Nebuliser 2.5-5mg)",
+                            "2. PO Prednisolone 0.5mg/kg (e.g., 40-50mg) for 5-7 days"
+                        ],
+                        "options": [{ "text": "End Pathway (Observe, consider discharge)", "next": "end" }]
+                    },
+                    "severe": {
+                        "recommendation": "Severe / Life-Threatening Attack (Page 51)",
+                        "bullets": [
+                            "1. High-Flow Oxygen (via Venturi or NRB, target SpO2 > 92%)",
+                            "2. Oxygen-driven Nebuliser: Salbutamol 5mg + Ipratropium 0.5mg",
+                            "3. IV Hydrocortisone 100-200mg STAT (or PO Prednisolone 0.5mg/kg)"
+                        ],
+                        "options": [{ "text": "Re-assess in 15-30 minutes", "next": "severe_review" }]
+                    },
+                    "severe_review": {
+                        "question": "Is patient responding to initial treatment?",
+                        "options": [
+                            { "text": "Yes, improving", "next": "severe_improving" },
+                            { "text": "No, not responding or worsening", "next": "severe_no_response" }
+                        ]
+                    },
+                    "severe_improving": {
+                        "recommendation": "Continue Treatment",
+                        "bullets": ["Continue nebs 4-6 hourly or prn", "Continue PO/IV Steroids", "Admit to ward"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "severe_no_response": {
+                        "recommendation": "NOT RESPONDING - ICU CONSULT (Page 51)",
+                        "bullets": [
+                            "1. Add IV Magnesium Sulphate 2g over 20 minutes",
+                            "2. Consider IV Aminophylline (discuss with senior/ICU)",
+                            "3. Prepare for BiPAP or Intubation"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "copd": {
+                "title": "COPD Exacerbation (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "COPD Exacerbation? (Incr. SOB, Sputum Volume, Sputum Purulence) (Page 53)",
+                        "options": [
+                            { "text": "Yes, admit to ward", "next": "co2_check" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "co2_check": {
+                        "question": "Check for CO2 Retention Risk (Page 54)",
+                        "bullets": ["Known CO2 retainer?", "Chronically raised HCO3 on labs?", "PaCO2 > 45 mmHg on arrival?", "Reduced GCS?"],
+                        "options": [
+                            { "text": "Yes, high risk of CO2 retention", "next": "co2_yes" },
+                            { "text": "No, low risk", "next": "co2_no" }
+                        ]
+                    },
+                    "co2_yes": {
+                        "recommendation": "Controlled Oxygen Therapy (Page 55)",
+                        "bullets": [
+                            "1. Use Venturi Mask (24% or 28%)",
+                            "2. Target SpO2 88-92%",
+                            "3. Use AIR-DRIVEN Nebulisers (not oxygen-driven)",
+                            "4. Get ABG in 30-60 min to check PaCO2"
+                        ],
+                        "options": [{ "text": "Continue to Core Meds", "next": "meds" }]
+                    },
+                    "co2_no": {
+                        "recommendation": "Standard Oxygen Therapy (Page 55)",
+                        "bullets": ["1. Titrate Oxygen to keep SpO2 > 92%", "2. Can use Oxygen-Driven Nebulisers"],
+                        "options": [{ "text": "Continue to Core Meds", "next": "meds" }]
+                    },
+                    "meds": {
+                        "recommendation": "Core Medications (Page 54-55)",
+                        "bullets": [
+                            "1. Nebulised Bronchodilators (Salbutamol 5mg + Ipratropium 0.5mg)",
+                            "2. PO Prednisolone 0.5mg/kg (e.g., 40mg) for 5-7 days",
+                            "3. Antibiotics (if 2/3 cardinal sx, esp. incr. purulence)"
+                        ],
+                        "options": [{ "text": "Select Antibiotics", "next": "abx" }]
+                    },
+                    "abx": {
+                        "recommendation": "Antibiotics (5-10 days) (Page 55)",
+                        "bullets": ["Azithromycin 500mg D1 then 250mg", "OR Doxycycline 100mg bid", "OR Co-Amoxiclav 1g bid"],
+                        "options": [{ "text": "Continue to Monitoring", "next": "review" }]
+                    },
+                    "review": {
+                        "question": "Review patient. Worsening acidosis, hypercapnia, or hypoxia despite tx?",
+                        "options": [
+                            { "text": "Yes, not responding", "next": "no_response" },
+                            { "text": "No, patient is stable/improving", "next": "end" }
+                        ]
+                    },
+                    "no_response": {
+                        "recommendation": "NOT RESPONDING - ICU CONSULT (Page 55)",
+                        "bullets": ["1. Consider Non-Invasive Ventilation (BiPAP)", "2. Prepare for Intubation if BiPAP fails or C/I"],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "hf": {
+                "title": "Heart Failure Admission (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Acute Heart Failure (New or Exacerbation)? (Page 57)",
+                        "options": [
+                            { "text": "Yes, HF suspected", "next": "assess" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "assess": {
+                        "question": "Assess Patient Profile (Page 58)",
+                        "bullets": ["Warm & Wet: Congested, SBP > 90, perfused", "Cold & Wet: Congested, SBP < 90, hypoperfused, cold"],
+                        "options": [
+                            { "text": "Warm & Wet (Congested)", "next": "warm_wet" },
+                            { "text": "Cold & Wet (Hypoperfused)", "next": "cold_wet" }
+                        ]
+                    },
+                    "cold_wet": {
+                        "recommendation": "Cold & Wet (Hypoperfused) - ICU CONSULT (Page 58)",
+                        "bullets": ["1. Needs Inotropic Support (e.g., Dobutamine)", "2. Gentle IV Diuretics (Furosemide)", "3. Urgent Echo"],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "warm_wet": {
+                        "recommendation": "Warm & Wet (Congested) - Management (Page 59)",
+                        "bullets": [
+                            "1. Sit Patient Up",
+                            "2. Oxygen (if SpO2 < 92%)",
+                            "3. IV Diuretics (Furosemide, 2x home dose or 40-80mg IV STAT)",
+                            "4. Consider IV Nitroglycerin (if SBP > 100 and severe edema)"
+                        ],
+                        "options": [{ "text": "Review response to diuretics", "next": "review" }]
+                    },
+                    "review": {
+                        "recommendation": "Monitor Urine Output and Symptoms",
+                        "bullets": ["If refractory to Furosemide, add Thiazide (e.g., Metolazone) 30 min before loop diuretic (Page 59)"],
+                        "options": [{ "text": "Once stable/euvolemic", "next": "stabilised_meds" }]
+                    },
+                    "stabilised_meds": {
+                        "recommendation": "Initiate/Continue Guideline-Directed Meds (Page 59-60)",
+                        "bullets": [
+                            "1. ACEi / ARB (if LVEF low)",
+                            "2. Beta-Blocker (e.g., Bisoprolol) (Start once euvolemic)",
+                            "3. Aldosterone Antagonist (Spironolactone) (if LVEF low, K+ < 5.5, Cr < 2.5)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "stroke": {
+                "title": "Acute Stroke Admission (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Acute Onset Neurological Deficit? Note Time of Onset. (Page 62)",
+                        "options": [
+                            { "text": "Yes, Suspect Stroke", "next": "mimics" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "mimics": {
+                        "recommendation": "Check for Stroke Mimics (Page 62)",
+                        "bullets": ["1. CHECK BLOOD GLUCOSE STAT (for Hypoglycemia)", "2. Todd's Paralysis (post-seizure)?", "Migraine?", "Infection?"],
+                        "options": [{ "text": "Mimics excluded, Proceed", "next": "ct_head" }]
+                    },
+                    "ct_head": {
+                        "recommendation": "STAT CT Head (Non-Contrast)",
+                        "options": [{ "text": "CT Result Available", "next": "ct_result" }]
+                    },
+                    "ct_result": {
+                        "question": "CT Head Result? (Page 63)",
+                        "options": [
+                            { "text": "Hemorrhage (ICH / SAH)", "next": "hemorrhagic" },
+                            { "text": "No Hemorrhage (Ischemic Stroke)", "next": "ischemic" }
+                        ]
+                    },
+                    "hemorrhagic": {
+                        "recommendation": "Hemorrhagic Stroke (Page 65)",
+                        "bullets": [
+                            "1. URGENT Neurosurgery Consult",
+                            "2. Admit ICU / Stroke Unit",
+                            "3. Strict BP Control (target SBP < 170 mmHg)",
+                            "4. Aspiration Precautions (NPO), 3-hourly turning"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "ischemic": {
+                        "recommendation": "Ischemic Stroke (Normal or Infarct on CT)",
+                        "question": "Time of Symptom Onset < 4.5 hours AND No Contraindications? (Page 62)",
+                        "options": [
+                            { "text": "Yes, Thrombolysis Candidate", "next": "thrombolysis_yes" },
+                            { "text": "No, Not Thrombolysis Candidate", "next": "thrombolysis_no" }
+                        ]
+                    },
+                    "thrombolysis_yes": {
+                        "recommendation": "Thrombolysis Candidate",
+                        "bullets": ["1. Discuss with Stroke Team STAT for Alteplase (t-PA)", "2. BP must be <185/110 before/during lytics"],
+                        "options": [{ "text": "Proceed to Ischemic Management", "next": "ischemic_mgmt" }]
+                    },
+                    "thrombolysis_no": {
+                        "recommendation": "Not Thrombolysis Candidate",
+                        "options": [{ "text": "Proceed to Ischemic Management", "next": "ischemic_mgmt" }]
+                    },
+                    "ischemic_mgmt": {
+                        "recommendation": "Ischemic Stroke Management (Page 65)",
+                        "bullets": [
+                            "1. Aspirin 300mg STAT (if no lytics given; wait 24h post-lytics)",
+                            "2. Aspiration Precautions (NPO, Swallowing Assessment)",
+                            "3. VTE Prophylaxis (Stockings, Pneumatic Compression)",
+                            "4. Statin (Atorvastatin 40mg)",
+                            "5. Permissive HTN (Do not treat unless >220/120, or >185/110 for lytics)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "hypotension": {
+                "title": "Acute Hypotension (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Acute Hypotension (SBP < 90 or MAP < 60)? (Page 67)",
+                        "options": [
+                            { "text": "Yes, hypotension confirmed", "next": "assess" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "assess": {
+                        "question": "Assess Etiology / Patient Profile (Page 67-68)",
+                        "bullets": ["Check Extremities (Warm/Cold), JVP, Lungs (Crackles?), Rash, Fever"],
+                        "options": [
+                            { "text": "Hypovolemic (Cold, ↓JVP, hx of fluid/blood loss)", "next": "hypovolemic" },
+                            { "text": "Distributive (Warm, ↑HR, fever -> Sepsis)", "next": "distributive_sepsis" },
+                            { "text": "Distributive (Warm, rash, stridor -> Anaphylaxis)", "next": "distributive_anaphylaxis" },
+                            { "text": "Cardiogenic (Cold, ↑JVP, crackles, hx of HF/ACS)", "next": "cardiogenic" },
+                            { "text": "Obstructive (Cold, ↑JVP, e.g., PE, Tamponade)", "next": "obstructive" }
+                        ]
+                    },
+                    "hypovolemic": {
+                        "recommendation": "Hypovolemic Shock",
+                        "bullets": ["1. STAT IV Fluid Bolus (500-1000ml Crystalloid)", "2. Transfuse (PRBCs) if bleeding", "3. Find and stop the source of loss"],
+                        "options": [{ "text": "End Pathway (Re-assess)", "next": "end" }]
+                    },
+                    "distributive_sepsis": {
+                        "recommendation": "Distributive Shock (Likely Sepsis)",
+                        "bullets": ["Go to SEPSIS Pathway for full management"],
+                        "options": [{ "text": "Go to Sepsis Pathway", "next": "end_home" }]
+                    },
+                    "distributive_anaphylaxis": {
+                        "recommendation": "Distributive Shock (Anaphylaxis) (Page 70)",
+                        "bullets": ["1. IM Epinephrine 0.5ml (1:1000) STAT", "2. IV Fluids", "3. Oxygen", "4. IV Hydrocortisone + Antihistamine"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "cardiogenic": {
+                        "recommendation": "Cardiogenic Shock (Page 68)",
+                        "bullets": ["1. URGENT ICU CONSULT", "2. Avoid large fluid bolus", "3. Needs Inotropic Support (e.g., Dobutamine)", "4. Urgent Echo. Go to ACS/Heart Failure Pathway."],
+                        "options": [{ "text": "Go to ACS/HF Pathway", "next": "end_home" }]
+                    },
+                    "obstructive": {
+                        "recommendation": "Obstructive Shock (Page 68)",
+                        "bullets": ["1. Treat underlying cause STAT", "Tension Pneumothorax -> Needle Decompression", "Cardiac Tamponade -> Pericardiocentesis", "Massive PE -> Go to PE Pathway (Thrombolysis)"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end_home": { "recommendation": "Redirecting..." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "hypokalemia": {
+                "title": "Hypokalemia Orders (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Hypokalemia (K+ < 3.5 mmol/L). (Page 71)",
+                        "options": [
+                            { "text": "Assess Severity", "next": "severity" },
+                        ]
+                    },
+                    "severity": {
+                        "question": "Assess Severity. ANY of: (Page 72)",
+                        "bullets": ["K+ is < 2.5 mmol/L", "Cardiac Arrhythmia / ECG Changes", "Severe Muscle Weakness / Ileus / Respiratory weakness", "Patient is on Digoxin"],
+                        "options": [
+                            { "text": "Yes, EMERGENCY replacement needed", "next": "severe" },
+                            { "text": "No, URGENT (K+ 2.6-3.5, no severe sx)", "next": "mild" }
+                        ]
+                    },
+                    "severe": {
+                        "recommendation": "Emergency IV Replacement (Page 73)",
+                        "bullets": [
+                            "1. Put on Cardiac Monitor",
+                            "2. Check Magnesium (Mg) level and correct if low",
+                            "3. Give IV Potassium (e.g., 40mmol KCL in 400ml NS over 4 hours)",
+                            "4. Max rate peripheral line: 10-20 mmol/hour",
+                            "5. Re-check K+ 1-2 hours post-infusion"
+                        ],
+                        "options": [{ "text": "Find and treat cause", "next": "etiology" }]
+                    },
+                    "mild": {
+                        "recommendation": "Urgent PO Replacement (Page 73)",
+                        "bullets": [
+                            "1. Give Oral KCL (e.g., 40 mEq) PO bid or tid",
+                            "2. Check Magnesium (Mg) level and correct if low",
+                            "3. Re-check K+ in 4-6 hours or next day"
+                        ],
+                        "options": [{ "text": "Find and treat cause", "next": "etiology" }]
+                    },
+                    "etiology": {
+                        "recommendation": "Find and Treat Cause (Page 71)",
+                        "bullets": ["Check for: Diuretic use, Vomiting, Diarrhea, Laxative abuse, Low Mg", "Treat underlying cause to prevent recurrence"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "hyperkalemia": {
+                "title": "Hyperkalemia Orders (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Hyperkalemia (K+ > 5.5 mmol/L). First step? (Page 74)",
+                        "recommendation": "1. Repeat Test STAT (to rule out pseudohyperkalemia). 2. Get STAT 12-lead ECG.",
+                        "options": [
+                            { "text": "Proceed", "next": "ecg_check" }
+                        ]
+                    },
+                    "ecg_check": {
+                        "question": "Is K+ > 6.5 mmol/L OR are there ECG changes? (Page 75)",
+                        "bullets": ["ECG Changes: Peaked T-waves, Wide QRS, Sine Wave, Flattened P-wave"],
+                        "options": [
+                            { "text": "Yes, EMERGENCY treatment", "next": "severe" },
+                            { "text": "No, K+ 5.5-6.4 AND No ECG changes", "next": "mild" }
+                        ]
+                    },
+                    "severe": {
+                        "recommendation": "Emergency Treatment (Page 76)",
+                        "bullets": [
+                            "1. Stabilize Heart: 1g IV Calcium Gluconate (over 3-5 min)",
+                            "2. Shift K+ into cells: 10u Regular Insulin IV + 50ml 50% Dextrose IV",
+                            "3. Shift K+ into cells: Salbutamol 10-20mg Nebulised",
+                            "4. Consider Bicarbonate (if severe acidosis)"
+                        ],
+                        "options": [{ "text": "Continue to removal", "next": "treat_cause" }]
+                    },
+                    "mild": {
+                        "recommendation": "Urgent Treatment (Page 76)",
+                        "bullets": ["Patient is stable, but K+ must be lowered."],
+                        "options": [{ "text": "Continue to removal", "next": "treat_cause" }]
+                    },
+                    "treat_cause": {
+                        "recommendation": "Remove K+ from Body & Treat Cause (Page 75-76)",
+                        "bullets": [
+                            "1. Stop K+ sparing drugs (ACEi, ARBs, Spironolactone, NSAIDs)",
+                            "2. Give Kayexalate (SPS) 30g PO",
+                            "3. Give Furosemide (if hypervolemic and kidneys working)",
+                            "4. URGENT Nephrology Consult for Dialysis if refractory or severe AKI"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "hyponatremia": {
+                "title": "Hyponatremia Orders (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Hyponatremia (Na+ < 135 mmol/L). First: Assess Severity & Duration. (Page 77)",
+                        "options": [
+                            { "text": "Assess Severity", "next": "severity" }
+                        ]
+                    },
+                    "severity": {
+                        "question": "Severe Symptoms? (Page 78)",
+                        "bullets": ["Seizures", "Coma / GCS < 9", "Severe Confusion", "OR is Na+ < 115 mmol/L?"],
+                        "options": [
+                            { "text": "Yes, Severe Symptoms / Na+ < 115", "next": "severe" },
+                            { "text": "No, Mild-Moderate Symptoms", "next": "volume_status" }
+                        ]
+                    },
+                    "severe": {
+                        "recommendation": "Emergency Treatment - ICU CONSULT (Page 80)",
+                        "bullets": [
+                            "1. STAT 3% Hypertonic Saline (e.g., 100ml bolus) to stop symptoms",
+                            "2. CRITICAL: Correct SLOWLY. Max 8-10 mmol/L in first 24h",
+                            "3. Re-check Na+ in 1-2 hours. Aim for Na+ > 120."
+                        ],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "volume_status": {
+                        "question": "Assess Volume Status (Page 77-78)",
+                        "options": [
+                            { "text": "Hypovolemic (Dehydrated, Hypotensive, low Urine Na < 20)", "next": "hypovolemic" },
+                            { "text": "Hypervolemic (Edema, Raised JVP - e.g., HF, Cirrhosis)", "next": "hypervolemic" },
+                            { "text": "Euvolemic (Suspect SIADH, Hypothyroid, Adrenal Insuff.)", "next": "euvolemic" }
+                        ]
+                    },
+                    "hypovolemic": {
+                        "recommendation": "Treat Hypovolemic Hyponatremia (Page 81)",
+                        "bullets": ["1. Treat with 0.9% Normal Saline (e.g., 1-2ml/kg/hr)", "2. Find and treat cause (e.g., Diarrhea, Vomiting)"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "hypervolemic": {
+                        "recommendation": "Treat Hypervolemic Hyponatremia (Page 81)",
+                        "bullets": [
+                            "1. Fluid Restrict (< 1 L / day)",
+                            "2. Give IV Furosemide",
+                            "3. Treat underlying cause (Heart Failure, Cirrhosis)"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "euvolemic": {
+                        "recommendation": "Treat Euvolemic Hyponatremia (Page 81)",
+                        "bullets": [
+                            "1. Check TSH, Synacthen test, Urine/Serum Osmolality.",
+                            "2. If SIADH suspected/confirmed: Fluid Restrict (< 1 L / day)",
+                            "3. Consider PO Salt Tabs or Demeclocycline"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "aki": {
+                "title": "Acute Kidney Injury (AKI)",
+                "nodes": {
+                    "start": {
+                        "question": "AKI Diagnosed? (Page 82)",
+                        "bullets": ["Rise in Cr > 26 in 48h", "OR Rise in Cr > 1.5x baseline in 7d", "OR UO < 0.5ml/kg/h for 6h"],
+                        "options": [
+                            { "text": "Yes, AKI diagnosed", "next": "red_flags" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "red_flags": {
+                        "question": "Check for Red Flags / Dialysis Indications (Page 83)",
+                        "bullets": ["Refractory Hyperkalemia (K+ > 6.5)", "Refractory Pulmonary Edema", "Severe Refractory Acidosis (pH < 7.15)", "Uremic Encephalopathy or Pericarditis"],
+                        "options": [
+                            { "text": "Yes, Red Flags present", "next": "dialysis" },
+                            { "text": "No Red Flags present", "next": "etiology_q" }
+                        ]
+                    },
+                    "dialysis": {
+                        "recommendation": "URGENT Nephrology Consult",
+                        "bullets": ["Patient needs Renal Replacement Therapy (Dialysis)"],
+                        "options": [{ "text": "End Pathway (Admit ICU/Renal)", "next": "end" }]
+                    },
+                    "etiology_q": {
+                        "recommendation": "Determine Etiology. 1. Assess Volume Status. 2. Stop Nephrotoxic Drugs (NSAIDs, ACEi, ARBs). 3. Get STAT Renal Ultrasound.",
+                        "question": "What is the likely etiology? (Page 82)",
+                        "options": [
+                            { "text": "Post-Renal (Obstruction on US, Palpable Bladder)", "next": "postrenal" },
+                            { "text": "Pre-Renal (Hypovolemic, Hypotensive, Sepsis)", "next": "prerenal" },
+                            { "text": "Renal (Urine blood/protein, casts, hx of nephrotoxin)", "next": "renal" }
+                        ]
+                    },
+                    "postrenal": {
+                        "recommendation": "Treat Post-Renal AKI (Page 85)",
+                        "bullets": ["1. Relieve Obstruction STAT", "2. Insert Foley's Catheter", "3. URGENT Urology Consult (if Foley doesn't resolve)"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "prerenal": {
+                        "recommendation": "Treat Pre-Renal AKI (Page 85)",
+                        "bullets": ["1. STAT IV Fluid Challenge (500-1000ml 0.9% NS)", "2. Treat underlying cause (e.g., Sepsis, Dehydration)", "3. Hold nephrotoxic drugs (NSAIDs, ACEi, ARBs)"],
+                        "options": [{ "text": "End Pathway (Re-assess)", "next": "end" }]
+                    },
+                    "renal": {
+                        "recommendation": "Treat Renal (Intrinsic) AKI (Page 85)",
+                        "bullets": ["1. Nephrology Consult", "2. Stop all nephrotoxic drugs", "3. Fluid balance carefully (may need diuretics if overloaded)", "4. Consider Biopsy/Immunosuppression (for Vasculitis, GN)"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "ugih": {
+                "title": "Upper GI Hemorrhage (UGIH)",
+                "nodes": {
+                    "start": {
+                        "question": "UGIH (Hematemesis or Melena)? (Page 87)",
+                        "options": [
+                            { "text": "Yes, UGIH suspected", "next": "resuscitate" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "resuscitate": {
+                        "recommendation": "STAT Resuscitation",
+                        "bullets": ["1. IV access (2 large bore cannulas)", "2. IV Fluids (Crystalloid)", "3. Group & Cross-match. Transfuse if Hb < 7-8 g/dL (Page 88)", "4. Correct Coagulopathy (FFP, Platelets if needed)"],
+                        "options": [{ "text": "Assess likely cause", "next": "type" }]
+                    },
+                    "type": {
+                        "question": "Suspect Variceal Bleed? (Known Cirrhosis, Stigmata of CLD) (Page 87)",
+                        "options": [
+                            { "text": "Yes, Suspect Variceal", "next": "variceal" },
+                            { "text": "No, Suspect Non-Variceal (e.g., PUD, NSAIDs)", "next": "non_variceal" }
+                        ]
+                    },
+                    "variceal": {
+                        "recommendation": "Variceal Bleed Management (Page 88)",
+                        "bullets": [
+                            "1. IV Omeprazole (80mg bolus + 8mg/hr infusion)",
+                            "2. IV Terlipressin STAT",
+                            "3. IV Antibiotics (Ceftriaxone 1g STAT)",
+                            "4. URGENT Endoscopy (<12h) for banding",
+                            "5. Admit ICU/HDU"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "non_variceal": {
+                        "recommendation": "Non-Variceal Bleed Management (Page 88)",
+                        "bullets": [
+                            "1. IV Omeprazole (80mg bolus + 8mg/hr infusion)",
+                            "2. Calculate Glasgow-Blatchford Score (GBS) (Page 88)"
+                        ],
+                        "options": [{ "text": "Check GBS Score", "next": "blatchford" }]
+                    },
+                    "blatchford": {
+                        "question": "Glasgow-Blatchford Score (GBS)? (Page 90)",
+                        "options": [
+                            { "text": "GBS = 0 (Low Risk)", "next": "blatchford_0" },
+                            { "text": "GBS > 0 (High Risk)", "next": "blatchford_high" }
+                        ]
+                    },
+                    "blatchford_0": {
+                        "recommendation": "Low Risk (GBS = 0)",
+                        "bullets": ["Consider outpatient management and non-urgent endoscopy"],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "blatchford_high": {
+                        "recommendation": "High Risk (GBS > 0)",
+                        "bullets": ["1. Admit to Ward/HDU", "2. URGENT Endoscopy (<24h) for hemostasis"],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "pe": {
+                "title": "Pulmonary Thromboembolism (PE)",
+                "nodes": {
+                    "start": {
+                        "question": "Suspected PE (Acute SOB, Pleuritic Pain)? (Page 91)",
+                        "options": [
+                            { "text": "Yes, assess probability", "next": "probability" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "probability": {
+                        "question": "Assess Pre-Test Probability (Well's Score) (Page 91)",
+                        "options": [
+                            { "text": "Well's Score < 4 (Low Probability)", "next": "wells_low" },
+                            { "text": "Well's Score > 4 (High Probability)", "next": "wells_high" }
+                        ]
+                    },
+                    "wells_low": {
+                        "recommendation": "Low Probability: Check PERC Rule (Page 92)",
+                        "question": "Is PERC Rule = 0?",
+                        "options": [
+                            { "text": "Yes, PERC = 0", "next": "pe_excluded_perc" },
+                            { "text": "No, PERC > 0", "next": "dimer" }
+                        ]
+                    },
+                    "pe_excluded_perc": {
+                        "recommendation": "PE Excluded. Look for other causes.",
+                        "options": [{ "text": "End Pathway", "next": "end_re-evaluate" }]
+                    },
+                    "dimer": {
+                        "recommendation": "Check D-Dimer Test (Page 93)",
+                        "question": "D-Dimer Result?",
+                        "options": [
+                            { "text": "D-Dimer Normal", "next": "pe_excluded_dimer" },
+                            { "text": "D-Dimer High", "next": "ctpa" }
+                        ]
+                    },
+                    "pe_excluded_dimer": {
+                        "recommendation": "PE Excluded. Look for other causes.",
+                        "options": [{ "text": "End Pathway", "next": "end_re-evaluate" }]
+                    },
+                    "wells_high": {
+                        "recommendation": "High Probability: Proceed to CTPA (Page 93)",
+                        "bullets": ["Start Anticoagulation (e.g., LMWH) STAT if no contraindications"],
+                        "options": [{ "text": "Get CTPA", "next": "ctpa" }]
+                    },
+                    "ctpa": {
+                        "recommendation": "STAT CT Pulmonary Angiography (CTPA)",
+                        "bullets": ["If CTPA C/I (renal failure, allergy), consider V/Q Scan or Leg Doppler + Echo"],
+                        "options": [{ "text": "CTPA Result Available", "next": "ctpa_result" }]
+                    },
+                    "ctpa_result": {
+                        "question": "CTPA Result?",
+                        "options": [
+                            { "text": "PE Confirmed", "next": "pe_confirmed" },
+                            { "text": "PE Negative", "next": "pe_negative" }
+                        ]
+                    },
+                    "pe_confirmed": {
+                        "recommendation": "PE Confirmed. Assess Severity (Page 92)",
+                        "question": "Is patient Hemodynamically Unstable? (SBP < 90, Shock, Cardiac Arrest)",
+                        "options": [
+                            { "text": "Yes, Massive PE (Unstable)", "next": "pe_massive" },
+                            { "text": "No, Submassive / Low Risk (Stable)", "next": "pe_stable" }
+                        ]
+                    },
+                    "pe_massive": {
+                        "recommendation": "Massive PE - ICU CONSULT (Page 94)",
+                        "bullets": [
+                            "1. Consider Thrombolysis (Alteplase) if no C/I",
+                            "2. Consider Embolectomy (Surgical or Catheter-directed)",
+                            "3. IV Heparin Infusion"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "pe_stable": {
+                        "recommendation": "Submassive / Low Risk PE (Stable) (Page 94)",
+                        "bullets": [
+                            "1. Admit to Ward/Monitored Bed",
+                            "2. Start Anticoagulation (LMWH bridge to Warfarin, OR DOAC like Apixaban/Rivaroxaban)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "pe_negative": {
+                        "recommendation": "PE Negative. Stop anticoagulation. Look for other causes.",
+                        "options": [{ "text": "End Pathway", "next": "end_re-evaluate" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "sicklecell": {
+                "title": "Acute Sickle Cell Crisis",
+                "nodes": {
+                    "start": {
+                        "question": "Known Sickle Cell Patient with Vaso-occlusive (Painful) Crisis? (Page 96)",
+                        "options": [
+                            { "text": "Yes, assess for red flags", "next": "red_flags" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "red_flags": {
+                        "question": "Check for Red Flags (Page 96)",
+                        "bullets": ["Neurological sx (Stroke, GCS drop)", "Respiratory sx (Acute Chest Syndrome: Desaturation, New CXR Infiltrate)", "Sepsis (Fever > 38.3°C)", "Priapism"],
+                        "options": [
+                            { "text": "Yes, Red Flag(s) Present", "next": "red_flag_yes" },
+                            { "text": "No, Simple Painful Crisis", "next": "pain_score" }
+                        ]
+                    },
+                    "red_flag_yes": {
+                        "recommendation": "RED FLAG - URGENT HEMATOLOGY CONSULT (Page 96)",
+                        "bullets": [
+                            "Go to specific pathway (Stroke, Sepsis, CAP/ACS)",
+                            "Needs URGENT simple or exchange transfusion evaluation (Page 99)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "pain_score": {
+                        "question": "Assess Pain Score (1-10) (Page 98)",
+                        "options": [
+                            { "text": "Severe Pain (Score >= 4)", "next": "pain_severe" },
+                            { "text": "Mild-Moderate Pain (Score < 4)", "next": "pain_mild" }
+                        ]
+                    },
+                    "pain_severe": {
+                        "recommendation": "Severe Pain Management (Page 98)",
+                        "bullets": [
+                            "1. STAT Opioid Analgesia (Morphine 0.1mg/kg IV or Hydromorphone 0.02mg/kg IV)",
+                            "2. Re-assess q20-30 min & repeat doses until pain < 4",
+                            "3. IV Fluids (e.g., NS 100-150ml/hr) (Avoid overload)",
+                            "4. Oxygen (if SpO2 < 95%)",
+                            "5. Incentive Spirometry (to prevent ACS)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit)", "next": "end" }]
+                    },
+                    "pain_mild": {
+                        "recommendation": "Mild-Moderate Pain Management (Page 98)",
+                        "bullets": [
+                            "1. Non-Opioid (Acetaminophen, NSAID e.g., Ketorolac)",
+                            "2. PO/IV Fluids",
+                            "3. Incentive Spirometry"
+                        ],
+                        "options": [{ "text": "End Pathway (Observe/Discharge)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "sepsis": {
+                "title": "Sepsis (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Suspecting Sepsis? (Page 101)",
+                        "bullets": [
+                            "Known/suspected source of infection PLUS any of:",
+                            "Temp >38.3°C or <36°C",
+                            "Systolic BP ≤ 90 mmHg (or drop >40)",
+                            "Respiratory Rate ≥ 25/min",
+                            "New confusion / GCS < 11"
+                        ],
+                        "options": [
+                            { "text": "Yes, Sepsis Suspected", "next": "sepsis_six" },
+                            { "text": "No, Re-evaluate Other Causes", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "sepsis_six": {
+                        "recommendation": "START SEPSIS SIX (Within 1 Hour): (Page 103)",
+                        "bullets": [
+                            "1. Give Oxygen (if needed, to keep SpO2 >92%)",
+                            "2. Take Blood Cultures (2 sets, before antibiotics)",
+                            "3. Give IV Antibiotics (See next step)",
+                            "4. Give IV Fluid Bolus (Crystalloid, 30ml/kg)",
+                            "5. Measure Serial Lactate (repeat in 2-4 hrs)",
+                            "6. Monitor Urine Output (Insert Foley, target >0.5ml/kg/hr)"
+                        ],
+                        "options": [
+                            { "text": "Proceed to Antibiotic Selection", "next": "sepsis_abx_source" }
+                        ]
+                    },
+                    "sepsis_abx_source": {
+                        "question": "What is the likely source of infection? (Page 103-105)",
+                        "options": [
+                            { "text": "Pneumonia (No MDR risk)", "next": "abx_cap" },
+                            { "text": "Pneumonia (MDR risk)", "next": "abx_cap_mdr" },
+                            { "text": "UTI", "next": "abx_uti" },
+                            { "text": "Intra-abdominal", "next": "abx_intra_abd" },
+                            { "text": "CNS (Meningitis)", "next": "abx_cns" },
+                            { "text": "Unknown Source", "next": "abx_unknown" }
+                        ]
+                    },
+                    "abx_cap": {
+                        "recommendation": "Antibiotics: Pneumonia (No MDR risk) (Page 103)",
+                        "bullets": ["Ceftriaxone 1-2g IV q24h OR Cefotaxime 1-2g IV q8h", "PLUS", "Azithromycin 500mg PO stat, then 250mg q24h"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "abx_cap_mdr": {
+                        "recommendation": "Antibiotics: Pneumonia (MDR risk) (Page 103)",
+                        "bullets": ["Piperacillin/Tazobactam 4.5g IV q8h OR Imipenem 1g IV q8h", "PLUS", "Gentamicin 5mg/kg IV q24h", "Add Vancomycin or Linezolid if MRSA suspected"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "abx_uti": {
+                        "recommendation": "Antibiotics: UTI (Page 104)",
+                        "bullets": ["Ceftriaxone 1g IV q24h OR Gentamicin 5mg/kg IV q24h", "For ESBL suspicion: Meropenem 1g IV q8h"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "abx_intra_abd": {
+                        "recommendation": "Antibiotics: Intra-abdominal (Page 104)",
+                        "bullets": ["Ceftriaxone 1g q24h AND Metronidazole 500mg IV q8h", "OR", "Piperacillin/Tazobactam 4.5g IV q8h"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "abx_cns": {
+                        "recommendation": "Antibiotics: CNS / Meningitis (Page 105)",
+                        "bullets": ["Ceftriaxone 2g IV q12h", "Add Ampicillin 2g IV q6h if Listeria suspected (e.g., >50yrs, immunocompromised)"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "abx_unknown": {
+                        "recommendation": "Antibiotics: Sepsis of Unknown Source (Page 105)",
+                        "bullets": ["Piperacillin/Tazobactam 4.5g IV q8h AND Gentamicin 5mg/kg q24h", "OR", "Meropenem 1g IV q8h", "Add Vancomycin if MRSA suspected"],
+                        "options": [{ "text": "Continue Sepsis Management", "next": "sepsis_monitoring" }]
+                    },
+                    "sepsis_monitoring": {
+                        "question": "After initial fluid bolus (30ml/kg), is patient still hypotensive (SBP <90) or Lactate >4? (Page 102)",
+                        "options": [
+                            { "text": "Yes, refractory hypotension (Septic Shock)", "next": "septic_shock" },
+                            { "text": "No, BP responding, Lactate clearing", "next": "sepsis_admit" }
+                        ]
+                    },
+                    "septic_shock": {
+                        "recommendation": "SEPTIC SHOCK - URGENT ICU CONSULT (Page 106)",
+                        "bullets": [
+                            "Start Vasopressors (e.g., Norepinephrine)",
+                            "Target MAP 65-90 mmHg",
+                            "Consider IV Hydrocortisone 50mg q6h if refractory to fluids/pressors"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "sepsis_admit": {
+                        "recommendation": "Admit to Ward/Monitored Bed",
+                        "bullets": [
+                            "Continue monitoring Vitals, UO, Lactate, GCS",
+                            "Provide VTE prophylaxis",
+                            "Provide Stress ulcer prophylaxis (if at risk)"
+                        ],
+                        "options": [{ "text": "End Pathway", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "malaria": {
+                "title": "Malaria (Adult)",
+                "nodes": {
+                    "start": {
+                        "question": "Suspected Malaria (Fever, travel to endemic area)? (Page 108)",
+                        "options": [
+                            { "text": "Yes, test STAT", "next": "test" },
+                            { "text": "No, Re-evaluate", "next": "end_re-evaluate" }
+                        ]
+                    },
+                    "test": {
+                        "recommendation": "Test STAT (Thick/Thin Blood Smear or RDT) (Page 110)",
+                        "question": "Test Result?",
+                        "options": [
+                            { "text": "Test Positive", "next": "severe_check" },
+                            { "text": "Test Negative", "next": "test_negative" }
+                        ]
+                    },
+                    "severe_check": {
+                        "question": "Severe Malaria Criteria Met? (Page 109)",
+                        "bullets": ["Impaired Consciousness (GCS < 11)", "Multiple Convulsions", "Respiratory Distress / ARDS", "Shock (SBP < 90)", "Jaundice (Bili > 3)", "Bleeding", "Severe Anemia (Hb < 5)", "Renal Impairment (AKI)", "Hyperparasitemia (>5%)"],
+                        "options": [
+                            { "text": "Yes, Severe Malaria", "next": "severe_yes" },
+                            { "text": "No, Uncomplicated Malaria", "next": "severe_no" }
+                        ]
+                    },
+                    "severe_yes": {
+                        "recommendation": "Severe Malaria - ADMIT ICU (Page 113)",
+                        "bullets": [
+                            "1. IV Artesunate 2.4mg/kg (at 0, 12, and 24 hours), then daily",
+                            "2. Supportive Care: IV Fluids, Glucose (check STAT), Diazepam for seizures",
+                            "3. Transfuse if Hb < 5 g/dL",
+                            "4. Monitor GCS, UO, Parasitemia"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit ICU)", "next": "end" }]
+                    },
+                    "severe_no": {
+                        "recommendation": "Uncomplicated Malaria",
+                        "question": "Species? (or P. falciparum if unknown/mixed)",
+                        "options": [
+                            { "text": "P. falciparum (or unknown/mixed)", "next": "falciparum" },
+                            { "text": "P. vivax / P. ovale", "next": "vivax_ovale" }
+                        ]
+                    },
+                    "falciparum": {
+                        "recommendation": "Uncomplicated P. falciparum (Page 111)",
+                        "bullets": ["PO Artemether/Lumefantrine (Coartem) (e.g., 80/480mg 1 tab initially, 1 after 8h, then 1 tab bid x 2 days)"],
+                        "options": [{ "text": "End Pathway (Observe)", "next": "end" }]
+                    },
+                    "vivax_ovale": {
+                        "recommendation": "Uncomplicated P. vivax / P. ovale (Page 112)",
+                        "bullets": [
+                            "1. PO Artemether/Lumefantrine (as for falciparum)",
+                            "2. AND Primaquine 30mg PO daily x 14 days",
+                            "CRITICAL: Must check G6PD status before starting Primaquine"
+                        ],
+                        "options": [{ "text": "End Pathway (Observe)", "next": "end" }]
+                    },
+                    "test_negative": {
+                        "recommendation": "Test Negative",
+                        "bullets": ["If high clinical suspicion, repeat blood smear q12-24h", "Re-evaluate for other causes of fever"],
+                        "options": [{ "text": "End Pathway", "next": "end_re-evaluate" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            },
+            "acute_abdomen": {
+                "title": "Acute Abdomen",
+                "nodes": {
+                    "start": {
+                        "question": "Acute Abdomen. Assess STAT. (Page 118)",
+                        "options": [
+                            { "text": "Check for Red Flags", "next": "red_flags" },
+                        ]
+                    },
+                    "red_flags": {
+                        "question": "Check for Surgical vs Medical Red Flags (Page 118)",
+                        "bullets": ["Surgical: Peritonitis (Guarding, Rebound), Pneumoperitoneum, Bowel Obstruction sx (Bilious vomit, distension), Testicular Pain (Torsion)", "Medical: Septic appearance, Respiratory sx, Jaundice, DKA sx, Purpuric Rash"],
+                        "options": [
+                            { "text": "Surgical Red Flags Present", "next": "red_flag_yes" },
+                            { "text": "Medical Red Flags Present", "next": "medical_yes" },
+                            { "text": "No Red Flags (Undifferentiated)", "next": "red_flag_none" }
+                        ]
+                    },
+                    "red_flag_yes": {
+                        "recommendation": "Surgical Red Flags - STAT SURGICAL CONSULT (Page 120)",
+                        "bullets": [
+                            "1. Make Patient NPO",
+                            "2. IV Fluids (Crystalloid Bolus)",
+                            "3. IV Antibiotics (e.g., Ceftriaxone 1-2g + Metronidazole 500mg)",
+                            "4. IV Pain control (e.g., Hydromorphone)",
+                            "5. Get Labs (CBC, U&E, LFT, Amylase, G&S, VBG, Pregnancy Test)"
+                        ],
+                        "options": [{ "text": "End Pathway (Admit Surgical)", "next": "end" }]
+                    },
+                    "medical_yes": {
+                        "recommendation": "Medical Red Flags",
+                        "bullets": ["Go to specific pathway (e.g., Sepsis, DKA, UGIH, CAP)", "Get Labs (Amylase, LFTs, VBG, Urine) (Page 119)"],
+                        "options": [{ "text": "Go to other pathways", "next": "end_home" }]
+                    },
+                    "red_flag_none": {
+                        "recommendATION": "Undifferentiated Abdominal Pain - Observe (Page 120)",
+                        "bullets": [
+                            "1. IV Pain control",
+                            "2. Re-assess frequently",
+                            "3. Get Labs (CBC, U&E, Amylase, LFTs, Urine, Pregnancy Test)",
+                            "4. Get Imaging (Ultrasound or CT Abdomen)"
+                        ],
+                        "options": [{ "text": "End Pathway (Observe)", "next": "end" }]
+                    },
+                    "end_re-evaluate": { "recommendation": "Re-evaluate patient for other diagnoses." },
+                    "end_home": { "recommendation": "Redirecting..." },
+                    "end": { "recommendation": "Pathway complete. Continue monitoring and supportive care." }
+                }
+            }
+        };
+        // --- End of Pathway Data ---
+
+
+        // --- 3. The App's Core Logic (Vanilla JS) ---
+
+        // Get references to all the HTML elements we need
+        const homeScreen = document.getElementById('home-screen');
+        const pathwayScreen = document.getElementById('pathway-screen');
+        const pathwayList = document.getElementById('pathway-list');
+        const pathwayTitle = document.getElementById('pathway-title');
+        const nodeContent = document.getElementById('node-content');
+        const nodeOptions = document.getElementById('node-options');
+        const backButton = document.getElementById('back-button');
+        const homeButtonNav = document.getElementById('home-button-nav');
+        const homeButtonEnd = document.getElementById('home-button-end');
+
+        let currentPathway = null;
+        let historyStack = []; // This stack lets us use the "Back" button
+
+        // Function to initialize the app
+        function init() {
+            showHomeScreen();
+            backButton.addEventListener('click', goBack);
+            homeButtonNav.addEventListener('click', showHomeScreen);
+            homeButtonEnd.addEventListener('click', showHomeScreen);
+        }
+
+        // Function to show the home screen (list of pathways)
+        function showHomeScreen() {
+            homeScreen.classList.remove('hidden');
+            pathwayScreen.classList.add('hidden');
+            
+            pathwayList.innerHTML = ''; // Clear old list
+            historyStack = [];
+            currentPathway = null;
+            
+            // Sort pathways alphabetically by title
+            const sortedPathwayKeys = Object.keys(pathways).sort((a, b) => {
+                return pathways[a].title.localeCompare(pathways[b].title);
+            });
+
+            // Create a button for each pathway in our JSON object
+            sortedPathwayKeys.forEach(key => {
+                const pathway = pathways[key];
+                const button = document.createElement('button');
+                button.className = "bg-green-600 hover:bg-green-700 text-white py-6 px-5 rounded-lg font-bold text-xl text-left shadow-lg transition-all duration-150 ease-in-out";
+                button.innerHTML = pathway.title;
+                button.onclick = () => startPathway(key);
+                pathwayList.appendChild(button);
+            });
+        }
+
+        // Function to start a specific pathway
+        function startPathway(pathwayKey) {
+            currentPathway = pathwayKey;
+            historyStack = []; // Clear history for new pathway
+            homeScreen.classList.add('hidden');
+            pathwayScreen.classList.remove('hidden');
+            pathwayTitle.textContent = pathways[currentPathway].title;
+            renderNode('start'); // Start at the first node
+        }
+        
+        // Function to go back one step
+        function goBack() {
+            if (historyStack.length > 1) {
+                historyStack.pop(); // Remove current node
+                const previousNodeId = historyStack[historyStack.length - 1]; // Get previous node
+                historyStack.pop(); // Pop again, so renderNode can re-add it
+                renderNode(previousNodeId);
+            } else {
+                // If only one item in stack, go home
+                showHomeScreen();
+            }
+        }
+
+        // The main function that renders a question or recommendation
+        function renderNode(nodeId) {
+            // Handle special "end_home" node ID immediately to avoid "not found" error
+            if (nodeId === 'end_home') {
+                showHomeScreen(); // Special end-node to just go home
+                return;
+            }
+            
+            if (!currentPathway || !pathways[currentPathway].nodes[nodeId]) {
+                console.error('Error: Node not found', currentPathway, nodeId);
+                showHomeScreen(); // Failsafe
+                return;
+            }
+
+            historyStack.push(nodeId); // Add this node to our history
+            const node = pathways[currentPathway].nodes[nodeId];
+            
+            // Clear the content and options from the previous step
+            nodeContent.innerHTML = '';
+            nodeOptions.innerHTML = '';
+            homeButtonEnd.classList.add('hidden'); // Hide end button by default
+
+            // Check if this is an "end" node
+            if (nodeId.startsWith('end')) {
+                let endMessage = "Pathway complete. Continue monitoring and supportive care.";
+                if (nodeId === 'end_re-evaluate') {
+                    endMessage = "Re-evaluate patient for other diagnoses.";
+                }
+                // 'end_home' is already handled above
+                
+                // Show the final recommendation
+                nodeContent.innerHTML = `<h3 class="text-2xl font-semibold mb-4 text-green-400">${node.recommendation || endMessage}</h3>`;
+                homeButtonEnd.classList.remove('hidden'); // Show the "Back to Home" button
+                return;
+            }
+
+            // If it's a question node
+            if (node.question) {
+                nodeContent.innerHTML += `<h3 class="text-2xl font-semibold mb-4">${node.question}</h3>`;
+            }
+            
+            // If it's a recommendation node
+            if (node.recommendation) {
+                nodeContent.innerHTML += `<h3 class="text-2xl font-semibold mb-4 text-green-400">${node.recommendation}</h3>`;
+            }
+
+            // If the node has bullet points (for criteria or actions)
+            if (node.bullets) {
+                const listClass = node.question ? 'question-bullet' : 'recommendation-bullet';
+                let listHTML = `<ul class="${listClass}">`;
+                node.bullets.forEach(bullet => {
+                    listHTML += `<li>${bullet}</li>`;
+                });
+                listHTML += `</ul>`;
+                nodeContent.innerHTML += listHTML;
+            }
+
+            // If the node has options (buttons)
+            if (node.options) {
+                node.options.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = "w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-5 rounded-lg font-bold text-lg mb-3 shadow-md transition-all duration-150 ease-in-out";
+                    button.textContent = option.text;
+                    button.onclick = () => renderNode(option.next); // When clicked, render the next node
+                    nodeOptions.appendChild(button);
+                });
+            }
+
+            // Scroll to the top of the pathway screen for readability on mobile
+            pathwayScreen.scrollTop = 0;
+        }
+
+        // Start the app when the page is loaded
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
+<footer class="mt-12 text-center text-sm text-gray-400 p-4 border-t border-gray-700 max-w-3xl mx-auto">
+        <p>This web application was developed by <strong>Dr. Thoraya Salah Murtada Sidahmed</strong>.</p>
+        <p>For technical support, recommendations, or suggestions, please direct inquiries to: <a href="mailto:Thorayagzzar@gmail.com" class="text-green-400 hover:text-green-300">thorayagzzar@gmail.com</a></p>
+    </footer>
